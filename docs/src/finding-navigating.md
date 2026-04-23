@@ -19,19 +19,9 @@ Open any file in your project with {#kb file_finder::Toggle}. Type part of the f
 
 ## Project Search
 
-> **Changed in Preview (v0.225).** See [release notes](/releases#0.225).
-
 Search across all files with {#kb pane::DeploySearch}. Start typing in the search field to begin searching—results appear as you type.
 
 Results appear in a [multibuffer](./multibuffers.md), letting you edit matches in place.
-
-To disable automatic search and require pressing Enter instead, open the Settings Editor ({#kb zed::OpenSettings}), search for "search on input", and toggle the setting off. Or add this to your settings.json:
-
-```json
-{
-  "search_on_input": false
-}
-```
 
 ## Go to Definition
 

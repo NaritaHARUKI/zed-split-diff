@@ -2,6 +2,17 @@ use crate::PredictEditsRequestTrigger;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::ops::Range;
+use strum::{AsRefStr, EnumString};
+
+pub const PREDICT_EDITS_MODE_HEADER_NAME: &str = "X-Zed-Predict-Edits-Mode";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, AsRefStr, EnumString)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum PredictEditsMode {
+    Eager,
+    Subtle,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RawCompletionRequest {
@@ -33,6 +44,8 @@ pub struct PredictEditsV3Response {
     /// this range to extract the old text from its local excerpt for
     /// diffing, rather than relying on its own format-derived range.
     pub editable_range: Range<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -8,8 +8,8 @@ use collab_ui::{
 };
 use editor::{Editor, MultiBuffer, MultiBufferOffset, PathKey, SelectionEffects};
 use gpui::{
-    AppContext as _, BackgroundExecutor, BorrowAppContext, Entity, SharedString, TestAppContext,
-    VisualContext, VisualTestContext, point,
+    Action, AppContext as _, BackgroundExecutor, BorrowAppContext, Entity, SharedString,
+    TestAppContext, VisualContext, VisualTestContext, point,
 };
 use language::Capability;
 use rpc::proto::PeerId;
@@ -18,7 +18,7 @@ use settings::SettingsStore;
 use text::{Point, ToPoint};
 use util::{path, rel_path::rel_path, test::sample_text};
 use workspace::{
-    CollaboratorId, MultiWorkspace, ParticipantLocation, SplitDirection, Workspace,
+    CloseWindow, CollaboratorId, MultiWorkspace, ParticipantLocation, SplitDirection, Workspace,
     item::ItemHandle as _,
 };
 
@@ -259,8 +259,8 @@ async fn test_basic_following(
 
     // Client C closes the project.
     let weak_workspace_c = workspace_c.downgrade();
-    workspace_c.update_in(cx_c, |workspace, window, cx| {
-        workspace.close_window(&Default::default(), window, cx);
+    workspace_c.update_in(cx_c, |_, window, cx| {
+        window.dispatch_action(Box::new(CloseWindow) as Box<dyn Action>, cx);
     });
     executor.run_until_parked();
     // are you sure you want to leave the call?
@@ -2184,6 +2184,7 @@ async fn test_following_after_replacement(cx_a: &mut TestAppContext, cx_b: &mut 
         );
         mb
     });
+    let multibuffer_snapshot = multibuffer.update(cx_a, |mb, cx| mb.snapshot(cx));
     let snapshot = buffer.update(cx_a, |buffer, _| buffer.snapshot());
     let editor: Entity<Editor> = cx_a.new_window_entity(|window, cx| {
         Editor::for_multibuffer(
@@ -2205,7 +2206,13 @@ async fn test_following_after_replacement(cx_a: &mut TestAppContext, cx_b: &mut 
         editor
             .selections
             .disjoint_anchor_ranges()
-            .map(|range| range.start.text_anchor.to_point(&snapshot))
+            .map(|range| {
+                multibuffer_snapshot
+                    .anchor_to_buffer_anchor(range.start)
+                    .unwrap()
+                    .0
+                    .to_point(&snapshot)
+            })
             .collect::<Vec<_>>()
     });
     multibuffer.update(cx_a, |multibuffer, cx| {
@@ -2232,7 +2239,13 @@ async fn test_following_after_replacement(cx_a: &mut TestAppContext, cx_b: &mut 
         editor
             .selections
             .disjoint_anchor_ranges()
-            .map(|range| range.start.text_anchor.to_point(&snapshot))
+            .map(|range| {
+                multibuffer_snapshot
+                    .anchor_to_buffer_anchor(range.start)
+                    .unwrap()
+                    .0
+                    .to_point(&snapshot)
+            })
             .collect::<Vec<_>>()
     });
     assert_eq!(positions, new_positions);

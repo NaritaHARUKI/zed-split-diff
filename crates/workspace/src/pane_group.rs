@@ -1,6 +1,7 @@
 use crate::{
     AnyActiveCall, AppState, CollaboratorId, FollowerState, Pane, ParticipantLocation, Workspace,
     WorkspaceSettings,
+    notifications::DetachAndPromptErr,
     pane_group::element::pane_axis,
     workspace_settings::{PaneSplitDirectionHorizontal, PaneSplitDirectionVertical},
 };
@@ -61,22 +62,33 @@ impl PaneGroup {
         new_pane: &Entity<Pane>,
         direction: SplitDirection,
         cx: &mut App,
-    ) -> Result<()> {
-        let result = match &mut self.root {
+    ) {
+        let found = match &mut self.root {
             Member::Pane(pane) => {
                 if pane == old_pane {
                     self.root = Member::new_axis(old_pane.clone(), new_pane.clone(), direction);
-                    Ok(())
+                    true
                 } else {
-                    anyhow::bail!("Pane not found");
+                    false
                 }
             }
             Member::Axis(axis) => axis.split(old_pane, new_pane, direction),
         };
-        if result.is_ok() {
-            self.mark_positions(cx);
+
+        // If the pane wasn't found, fall back to splitting the first pane in the tree.
+        if !found {
+            let first_pane = self.root.first_pane();
+            match &mut self.root {
+                Member::Pane(_) => {
+                    self.root = Member::new_axis(first_pane, new_pane.clone(), direction);
+                }
+                Member::Axis(axis) => {
+                    let _ = axis.split(&first_pane, new_pane, direction);
+                }
+            }
         }
-        result
+
+        self.mark_positions(cx);
     }
 
     pub fn bounding_box_for_pane(&self, pane: &Entity<Pane>) -> Option<Bounds<Pixels>> {
@@ -84,6 +96,10 @@ impl PaneGroup {
             Member::Pane(_) => None,
             Member::Axis(axis) => axis.bounding_box_for_pane(pane),
         }
+    }
+
+    pub fn full_height_column_count(&self) -> usize {
+        self.root.full_height_column_count()
     }
 
     pub fn pane_at_pixel_position(&self, coordinate: Point<Pixels>) -> Option<&Entity<Pane>> {
@@ -290,6 +306,13 @@ impl Member {
             }),
         }
     }
+
+    fn full_height_column_count(&self) -> usize {
+        match self {
+            Member::Pane(_) => 1,
+            Member::Axis(axis) => axis.full_height_column_count(),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -416,14 +439,19 @@ impl PaneLeaderDecorator for PaneRenderContext<'_> {
                                 let app_state = self.app_state.clone();
                                 this.cursor_pointer().on_mouse_down(
                                     MouseButton::Left,
-                                    move |_, _, cx| {
+                                    move |_, window, cx| {
                                         crate::join_in_room_project(
                                             leader_project_id,
                                             leader_user_id,
                                             app_state.clone(),
                                             cx,
                                         )
-                                        .detach_and_log_err(cx);
+                                        .detach_and_prompt_err(
+                                            "Failed to join project",
+                                            window,
+                                            cx,
+                                            |error, _, _| Some(format!("{error:#}")),
+                                        );
                                     },
                                 )
                             },
@@ -612,12 +640,12 @@ impl PaneAxis {
         old_pane: &Entity<Pane>,
         new_pane: &Entity<Pane>,
         direction: SplitDirection,
-    ) -> Result<()> {
+    ) -> bool {
         for (mut idx, member) in self.members.iter_mut().enumerate() {
             match member {
                 Member::Axis(axis) => {
-                    if axis.split(old_pane, new_pane, direction).is_ok() {
-                        return Ok(());
+                    if axis.split(old_pane, new_pane, direction) {
+                        return true;
                     }
                 }
                 Member::Pane(pane) => {
@@ -631,12 +659,12 @@ impl PaneAxis {
                             *member =
                                 Member::new_axis(old_pane.clone(), new_pane.clone(), direction);
                         }
-                        return Ok(());
+                        return true;
                     }
                 }
             }
         }
-        anyhow::bail!("Pane not found");
+        false
     }
 
     fn insert_pane(&mut self, idx: usize, new_pane: &Entity<Pane>) {
@@ -871,6 +899,23 @@ impl PaneAxis {
             }
         }
         None
+    }
+
+    fn full_height_column_count(&self) -> usize {
+        match self.axis {
+            Axis::Horizontal => self
+                .members
+                .iter()
+                .map(Member::full_height_column_count)
+                .sum::<usize>()
+                .max(1),
+            Axis::Vertical => self
+                .members
+                .iter()
+                .map(Member::full_height_column_count)
+                .max()
+                .unwrap_or(1),
+        }
     }
 
     fn render(
